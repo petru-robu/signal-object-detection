@@ -53,3 +53,34 @@ ReLU
 Dropout(0.3)
 
 Linear
+
+It was bad, it got 30% acc
+
+
+### Second CNN try
+- I updated the network to this:
+
+5 layers of this:
+nn.Conv2d(in_channels, 32, kernel_size=3, padding=1, bias=False),
+nn.BatchNorm2d(32),
+nn.ReLU(inplace=True),
+nn.MaxPool2d(2),
+
+At the end:
+nn.AdaptiveAvgPool2d((1, 1))
+
+nn.Flatten(),
+nn.Linear(192, 128),
+nn.ReLU(inplace=True),
+nn.Dropout(dropout),
+nn.Linear(128, num_classes)
+
+- Added data augumentation (gaussian blur and shift)
+- Added a scheduler
+- Added class weights
+- Increased epochs
+
+With this i got a submission of 70%
+
+### Third CNN try
+

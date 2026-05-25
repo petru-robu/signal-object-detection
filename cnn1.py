@@ -263,7 +263,7 @@ def main():
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     # one epoch = one pass through the dataset
-    num_epochs = 10
+    num_epochs = 40
     for epoch in range(num_epochs):
         print(f"Epoch [{epoch+1} / {num_epochs}]")
 

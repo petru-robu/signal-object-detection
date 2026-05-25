@@ -1,4 +1,4 @@
-# CNNS 70%
+# CNNS 0.6948387096774193
 import random
 import argparse
 import cv2
@@ -221,10 +221,7 @@ def load_dataset(data_dir="./data", batch_size=32, num_workers=2, val_split=0.2,
     )
 
     # weights
-    multipliers = [0.8, 1.0, 1.0, 1.2, 1.2]
-    class_weights, class_counts = make_class_weights(labels_0_based[train_idx], num_classes=5, penalty_multipliers=multipliers)
-
-
+    class_weights, class_counts = make_class_weights(labels_0_based[train_idx], num_classes=5)
     return test_data, train_data, val_data, test_loader, train_loader, val_loader, class_weights, class_counts
 
 
@@ -248,37 +245,61 @@ def check_dataset():
 class CNN(nn.Module):
     def __init__(self, in_channels=1, num_classes=5, dropout=0.25):
         super(CNN, self).__init__()
-        self.features = nn.Sequential(
-            nn.Conv2d(in_channels, 32, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),
 
+        self.features = nn.Sequential(
+            # Stage 1: 1 -> 16
+            nn.Conv2d(in_channels, 16, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(16),
+            nn.SiLU(inplace=True),
+
+            nn.Conv2d(16, 16, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(16),
+            nn.SiLU(inplace=True),
+
+            # Preserve frequency structure more aggressively.
+            # Downsample mostly along width/time first.
+            nn.MaxPool2d(kernel_size=(1, 2), stride=(1, 2)),
+
+            # Stage 2: 16 -> 32
+            nn.Conv2d(16, 32, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(32),
+            nn.SiLU(inplace=True),
+
+            nn.Conv2d(32, 32, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(32),
+            nn.SiLU(inplace=True),
+
+            nn.MaxPool2d(kernel_size=(1, 2), stride=(1, 2)),
+
+            # Stage 3: 32 -> 64
             nn.Conv2d(32, 64, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),
+            nn.SiLU(inplace=True),
 
+            nn.Conv2d(64, 64, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.SiLU(inplace=True),
+
+            # Now downsample both dimensions
+            nn.MaxPool2d(kernel_size=2, stride=2),
+
+            # Stage 4: 64 -> 128
             nn.Conv2d(64, 128, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),
+            nn.SiLU(inplace=True),
 
-            nn.Conv2d(128, 192, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(192),
-            nn.ReLU(inplace=True),
-
-            nn.Conv2d(192, 192, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(192),
-            nn.ReLU(inplace=True),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.SiLU(inplace=True),
         )
 
         self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
 
         self.classifier = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(192, 128),
-            nn.ReLU(inplace=True),
+            nn.Linear(128, 128),
+            nn.BatchNorm1d(128),
+            nn.SiLU(inplace=True),
             nn.Dropout(dropout),
             nn.Linear(128, num_classes),
         )
@@ -286,8 +307,8 @@ class CNN(nn.Module):
     def forward(self, x):
         x = self.features(x)
         x = self.global_pool(x)
-        return self.classifier(x)
-
+        x = self.classifier(x)
+        return x
 
 # ----- Train / Eval / Predict ------
 def train_one_epoch(model, loader, criterion, optimizer, device):
@@ -398,6 +419,42 @@ def parse_args():
     return args
 
 
+
+# FOCAL LOSS
+class FocalLoss(nn.Module):
+    """
+    Multi-class Focal Loss
+    """
+    def __init__(self, weight=None, gamma=2.0, label_smoothing=0.0, reduction='mean'):
+        super().__init__()
+        self.weight = weight
+        self.gamma = gamma
+        self.label_smoothing = label_smoothing
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        # Calculate standard cross entropy loss (with your existing label smoothing)
+        ce_loss = F.cross_entropy(
+            inputs, 
+            targets, 
+            weight=self.weight, 
+            label_smoothing=self.label_smoothing,
+            reduction='none'
+        )
+        
+        # pt is the probability of the target class (inverse of negative log likelihood)
+        pt = torch.exp(-ce_loss)
+        
+        # Apply the focal loss modulating factor: (1 - pt)^gamma
+        focal_loss = ((1 - pt) ** self.gamma) * ce_loss
+        
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        
+        return focal_loss
+
 def main():
     # ARGS AND SETTINGS
     args = parse_args()
@@ -430,7 +487,14 @@ def main():
 
     weights = class_weights.to(device) # weights
 
-    criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing, weight=weights)
+    # criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing, weight=weights)
+
+    criterion = FocalLoss(
+        weight=weights, 
+        gamma=2.0,  # 2.0 is the industry standard starting point
+        label_smoothing=args.label_smoothing
+    )
+
     optimizer = optim.AdamW(
         model.parameters(),
         lr=args.lr,
