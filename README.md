@@ -28,7 +28,7 @@ Then try out different models on a training data split, I obtained:
 - Scaler + SVM: 23.4% accuracy
 
 ## Approach 2:
-Standard models don't perform so well, also we are working with images, best approach: CNN.
+Standard models don't perform so well, also we are working with images, best approach: CNN.s
 For CNNs I am using pytorch and training locally on a computer with CUDA.
 
 ### First CNN try
