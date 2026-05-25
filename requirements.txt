@@ -4,4 +4,9 @@ scikit-learn
 opencv-python
 scikit-image
 pandas
-tensorflow
+
+tqdm
+
+torch
+torchvision
+torchmetrics
