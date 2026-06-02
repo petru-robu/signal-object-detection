@@ -20,7 +20,6 @@ from torchmetrics import Accuracy
 
 # ------ Helpers -------
 
-
 def set_seed(seed=42, deterministic=False):
     random.seed(seed)
     np.random.seed(seed)
@@ -50,7 +49,7 @@ def load_image(image_path):
     img = img.astype(np.float32) / 255.0
     return img
 
-# Some custom fmethods to transform an image
+# Some custom methods to transform an image
 class AddGaussianNoise:
     def __init__(self, std=0.02, p=0.25):
         self.std = std
@@ -61,7 +60,6 @@ class AddGaussianNoise:
             image = image + self.std * torch.randn_like(image)
             image = torch.clamp(image, 0.0, 1.0)
         return image
-
 
 class RandomShift2D:
     """Small translation."""
@@ -80,7 +78,6 @@ class RandomShift2D:
         return torch.roll(image, shifts=(dy, dx), dims=(-2, -1))
 
 # ---- Dataset stuff ----
-
 
 class ObjDetTorchDataset(Dataset):
     def __init__(self, csv_file, has_label=True, img_dir=None, transform=None):
@@ -117,7 +114,7 @@ class ObjDetTorchDataset(Dataset):
 
 
 def stratified_split_indices(labels, val_split=0.2, seed=42):
-    """ Get idx for a stratified split, classes be equally dsitributed. """
+    """ Get idx for a stratified split, so classes are equally dsitributed. """
     rng = np.random.default_rng(seed)
     labels = np.asarray(labels)
     train_indices, val_indices = [], []
@@ -159,12 +156,13 @@ def load_dataset(data_dir="./data", batch_size=32, num_workers=2, val_split=0.2,
     train_csv, train_img_dir = data_dir + "/train.csv", data_dir + "/train"
     test_csv, test_img_dir = data_dir + "/test.csv", data_dir + "/test"
 
-    #data augumentation - my own
+    # data augumentation - my own
     train_transform = transforms.Compose([
         AddGaussianNoise(std=0.02, p=0.25),
         RandomShift2D(max_shift=2, p=0.20)
     ])
 
+    # data augumentation
     # train_transform = v2.Compose([
     #     v2.RandomApply([v2.GaussianBlur(kernel_size=3)], p=0.2)
     # ])
@@ -193,9 +191,12 @@ def load_dataset(data_dir="./data", batch_size=32, num_workers=2, val_split=0.2,
 
     # split
     labels_0_based = full_train_eval.df["label"].astype(int).values - 1
+
     train_idx, val_idx = stratified_split_indices(
         labels_0_based, val_split=val_split, seed=seed)
+    
     train_data = Subset(full_train_aug, train_idx)
+
     val_data = Subset(full_train_eval, val_idx)
 
     # data loaders
@@ -256,8 +257,6 @@ class CNN(nn.Module):
             nn.BatchNorm2d(16),
             nn.SiLU(inplace=True),
 
-            # Preserve frequency structure more aggressively.
-            # Downsample mostly along width/time first.
             nn.MaxPool2d(kernel_size=(1, 2), stride=(1, 2)),
 
             # Stage 2: 16 -> 32
@@ -280,10 +279,8 @@ class CNN(nn.Module):
             nn.BatchNorm2d(64),
             nn.SiLU(inplace=True),
 
-            # Now downsample both dimensions
             nn.MaxPool2d(kernel_size=2, stride=2),
 
-            # Stage 4: 64 -> 128
             nn.Conv2d(64, 128, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(128),
             nn.SiLU(inplace=True),
@@ -418,43 +415,6 @@ def parse_args():
         print(f"Ignoring unknown notebook arguments: {unknown}")
     return args
 
-
-
-# FOCAL LOSS
-class FocalLoss(nn.Module):
-    """
-    Multi-class Focal Loss
-    """
-    def __init__(self, weight=None, gamma=2.0, label_smoothing=0.0, reduction='mean'):
-        super().__init__()
-        self.weight = weight
-        self.gamma = gamma
-        self.label_smoothing = label_smoothing
-        self.reduction = reduction
-
-    def forward(self, inputs, targets):
-        # Calculate standard cross entropy loss (with your existing label smoothing)
-        ce_loss = F.cross_entropy(
-            inputs, 
-            targets, 
-            weight=self.weight, 
-            label_smoothing=self.label_smoothing,
-            reduction='none'
-        )
-        
-        # pt is the probability of the target class (inverse of negative log likelihood)
-        pt = torch.exp(-ce_loss)
-        
-        # Apply the focal loss modulating factor: (1 - pt)^gamma
-        focal_loss = ((1 - pt) ** self.gamma) * ce_loss
-        
-        if self.reduction == 'mean':
-            return focal_loss.mean()
-        elif self.reduction == 'sum':
-            return focal_loss.sum()
-        
-        return focal_loss
-
 def main():
     # ARGS AND SETTINGS
     args = parse_args()
@@ -487,26 +447,13 @@ def main():
 
     weights = class_weights.to(device) # weights
 
-    # criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing, weight=weights)
-
-    criterion = FocalLoss(
-        weight=weights, 
-        gamma=2.0,  # 2.0 is the industry standard starting point
-        label_smoothing=args.label_smoothing
-    )
+    criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing, weight=weights)
 
     optimizer = optim.AdamW(
         model.parameters(),
         lr=args.lr,
         weight_decay=args.weight_decay
     )
-
-    # scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-    #     optimizer,
-    #     mode="max",
-    #     patience=4,
-    #     factor=0.5
-    # )
 
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
@@ -534,7 +481,6 @@ def main():
             device
         )
 
-        # scheduler.step(val_acc) # this is for plateau
         scheduler.step()
         lr = optimizer.param_groups[0]["lr"]
 

@@ -17,8 +17,6 @@ from torchvision import transforms
 from torchmetrics import Accuracy
 
 # ------ Image manipulation stuff -------
-
-
 def imshow(img):
     npimg = img.numpy()
     # convert RGB ro grayscale
