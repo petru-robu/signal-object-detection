@@ -1,6 +1,4 @@
-# CNN5
-# Different scheduler
-
+# CNNS 0.6948387096774193
 import random
 import argparse
 import cv2
@@ -244,56 +242,67 @@ def check_dataset():
     imshow(torchvision.utils.make_grid(images))
 
 
-# ----- CNN stuff ------
+# ---------------- CNN STUFF ---------------------
+class ResBlock(nn.Module):
+    """
+    A standard Residual Block. 
+    If stride > 1, it downsamples the spatial dimensions while increasing the channel count.
+    """
+    def __init__(self, in_channels, out_channels, stride=1):
+        super(ResBlock, self).__init__()
+        
+        # Main pathway
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        
+        # Shortcut pathway (Skip Connection)
+        self.shortcut = nn.Sequential()
+        # If we are changing the number of channels or the spatial dimensions, 
+        # the shortcut needs a 1x1 convolution to match shapes so we can add them together.
+        if stride != 1 or in_channels != out_channels:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(out_channels)
+            )
+
+    def forward(self, x):
+        # Pass through main pathway
+        out = F.silu(self.bn1(self.conv1(x)), inplace=True)
+        out = self.bn2(self.conv2(out))
+        
+        # Add the original input (shortcut) back to the output
+        out += self.shortcut(x)
+        
+        # Final activation
+        out = F.silu(out, inplace=True)
+        return out
+
+
 class CNN(nn.Module):
+    """
+    Upgraded ResNet-style CNN for 1-channel images.
+    """
     def __init__(self, in_channels=1, num_classes=5, dropout=0.25):
         super(CNN, self).__init__()
 
-        self.features = nn.Sequential(
-            # Stage 1: 1 -> 16
-            nn.Conv2d(in_channels, 16, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(16),
-            nn.SiLU(inplace=True),
+        # Initial feature extraction: 1 -> 16 channels (No downsampling yet)
+        self.conv1 = nn.Conv2d(in_channels, 16, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(16)
 
-            nn.Conv2d(16, 16, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(16),
-            nn.SiLU(inplace=True),
+        # Residual Stages
+        # Instead of MaxPool, we use stride=2 in the blocks to learn the downsampling.
+        self.layer1 = ResBlock(16, 16, stride=1)           # Spatial size stays the same
+        self.layer2 = ResBlock(16, 32, stride=2)           # Downsamples by 2x
+        self.layer3 = ResBlock(32, 64, stride=2)           # Downsamples by 2x
+        self.layer4 = ResBlock(64, 128, stride=2)          # Downsamples by 2x
 
-            nn.MaxPool2d(kernel_size=(1, 2), stride=(1, 2)),
-
-            # Stage 2: 16 -> 32
-            nn.Conv2d(16, 32, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(32),
-            nn.SiLU(inplace=True),
-
-            nn.Conv2d(32, 32, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(32),
-            nn.SiLU(inplace=True),
-
-            nn.MaxPool2d(kernel_size=(1, 2), stride=(1, 2)),
-
-            # Stage 3: 32 -> 64
-            nn.Conv2d(32, 64, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(64),
-            nn.SiLU(inplace=True),
-
-            nn.Conv2d(64, 64, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(64),
-            nn.SiLU(inplace=True),
-
-            nn.MaxPool2d(kernel_size=2, stride=2),
-
-            nn.Conv2d(64, 128, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(128),
-            nn.SiLU(inplace=True),
-
-            nn.Conv2d(128, 128, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(128),
-            nn.SiLU(inplace=True),
-        )
-
+        # Global Average Pooling flattens whatever spatial dimensions are left into 1x1
         self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
 
+        # Classifier (Kept identical to your original for consistency)
         self.classifier = nn.Sequential(
             nn.Flatten(),
             nn.Linear(128, 128),
@@ -304,13 +313,24 @@ class CNN(nn.Module):
         )
 
     def forward(self, x):
-        x = self.features(x)
+        # 1. Initial Stem
+        x = F.silu(self.bn1(self.conv1(x)), inplace=True)
+
+        # 2. Residual Feature Extraction
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+
+        # 3. Pooling and Classification
         x = self.global_pool(x)
         x = self.classifier(x)
+        
         return x
+    
 
 # ----- Train / Eval / Predict ------
-def train_one_epoch(model, loader, criterion, optimizer, device, scheduler):
+def train_one_epoch(model, loader, criterion, optimizer, device):
     model.train()
     running_loss, correct, total = 0.0, 0, 0
 
@@ -331,7 +351,6 @@ def train_one_epoch(model, loader, criterion, optimizer, device, scheduler):
 
 
         optimizer.step()
-        scheduler.step()
 
         bs = images.size(0)
         running_loss += loss.item() * bs
@@ -456,24 +475,12 @@ def main():
         model.parameters(),
         lr=args.lr,
         weight_decay=args.weight_decay
-    )   
+    )
 
-    # DIFFERENT SCHEDULERS
-
-    # scheduler = optim.lr_scheduler.CosineAnnealingLR(
-    #     optimizer,
-    #     T_max=args.epochs,
-    #     eta_min=1e-6
-    # )
-
-    scheduler = optim.lr_scheduler.OneCycleLR(
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
-        max_lr=args.lr, 
-        steps_per_epoch=len(train_loader),
-        epochs=args.epochs,
-        pct_start=0.3,  
-        div_factor=10.0, 
-        final_div_factor=1000.0
+        T_max=args.epochs,
+        eta_min=1e-6
     )
 
     # TRAINING LOOP
@@ -486,8 +493,7 @@ def main():
             train_loader,
             criterion,
             optimizer,
-            device,
-            scheduler
+            device
         )
 
         val_loss, val_acc, y_true, y_pred = validate(
@@ -497,7 +503,7 @@ def main():
             device
         )
 
-        # scheduler.step()
+        scheduler.step()
         lr = optimizer.param_groups[0]["lr"]
 
         print(
@@ -526,7 +532,7 @@ def main():
     checkpoint = torch.load(best_model_path, map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
 
-    _, final_val_acc, y_true, y_pred = validate(model, val_loader, criterion, device, scheduler)
+    _, final_val_acc, y_true, y_pred = validate(model, val_loader, criterion, device)
 
     print(f"Final loaded best-model validation accuracy: {final_val_acc:.4f}")
     confusion_matrix(y_true, y_pred, num_classes=5)
