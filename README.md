@@ -1,5 +1,8 @@
 # Signal Object Detection
-Participants are asked to employ machine learning methods to detect (count) objects in noisy radio signals, where classes represent the number of objects. In this context, a question that arises is whether this task should be treated as a classification or regression task.
+Participants are asked to employ machine learning methods to detect (count) objects in noisy radio signals, where classes represent the number of objects.
+
+I have images of size 55x128 each fixed size guaranteed. They are grayscale images colormapped to viridis. They represent scanned objects like signals.
+
 
 ## Notes
 - Images are grayscale, they are only colormapped
