@@ -1,5 +1,4 @@
 # Arhitecture changed with res blocks:
-# CNNS 0.6948387096774193
 import random
 import argparse
 import cv2
@@ -253,7 +252,7 @@ class SEBlock(nn.Module):
         self.se = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
             nn.Conv2d(channels, hidden, kernel_size=1),
-            nn.SiLU(inplace=True),
+            nn.SiLU(),
             nn.Conv2d(hidden, channels, kernel_size=1),
             nn.Sigmoid()
         )
@@ -301,7 +300,7 @@ class ResidualBlock(nn.Module):
 
         out = self.conv1(x)
         out = self.bn1(out)
-        out = F.silu(out, inplace=True)
+        out = F.silu(out, )
 
         out = self.conv2(out)
         out = self.bn2(out)
@@ -310,7 +309,7 @@ class ResidualBlock(nn.Module):
         out = self.dropout(out)
 
         out = out + identity
-        out = F.silu(out, inplace=True)
+        out = F.silu(out, )
 
         return out
 
@@ -322,7 +321,7 @@ class CNN(nn.Module):
         self.stem = nn.Sequential(
             nn.Conv2d(in_channels, 32, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(32),
-            nn.SiLU(inplace=True)
+            nn.SiLU()
         )
 
         self.stage1 = nn.Sequential(
@@ -369,12 +368,12 @@ class CNN(nn.Module):
             nn.Flatten(),
             nn.Linear(256 * 2, 256),
             nn.BatchNorm1d(256),
-            nn.SiLU(inplace=True),
+            nn.SiLU(),
             nn.Dropout(dropout),
 
             nn.Linear(256, 128),
             nn.BatchNorm1d(128),
-            nn.SiLU(inplace=True),
+            nn.SiLU(),
             nn.Dropout(dropout * 0.5),
 
             nn.Linear(128, num_classes)

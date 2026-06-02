@@ -79,10 +79,7 @@ def extract_component_features(img):
         thr = np.percentile(img_uint8, q)
         mask = (img_uint8 > thr).astype(np.uint8)
 
-        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(
-            mask,
-            connectivity=8
-        )
+        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask, connectivity=8)
 
         areas = stats[1:, cv2.CC_STAT_AREA] if num_labels > 1 else np.array([])
 
@@ -102,7 +99,6 @@ def extract_component_features(img):
             ])
 
     return np.array(feats, dtype=np.float32)
-
 
 def extract_projection_features(img):
     feats = []
@@ -162,6 +158,7 @@ if __name__ == "__main__":
         stratify=y
     )
 
+    # scale, because svc requires centered data
     model = make_pipeline(
         StandardScaler(),
         LinearSVC(

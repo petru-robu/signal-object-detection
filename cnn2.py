@@ -137,6 +137,7 @@ def stratified_split_indices(labels, val_split=0.2, seed=42):
 def make_class_weights(labels, num_classes=5, penalty_multipliers=None):
     """
     Calculates base weights based on data distribution, then applies a manual multiplier
+    Later i dropped the manual multiplier (leads to overfit)
     """
     labels = np.asarray(labels)
     counts = np.bincount(labels, minlength=num_classes).astype(np.float32)
@@ -195,6 +196,8 @@ def load_dataset(data_dir="./data", batch_size=32, num_workers=2, val_split=0.2,
     labels_0_based = full_train_eval.df["label"].astype(int).values - 1
     train_idx, val_idx = stratified_split_indices(
         labels_0_based, val_split=val_split, seed=seed)
+    
+    # get subsets based on indices
     train_data = Subset(full_train_aug, train_idx)
     val_data = Subset(full_train_eval, val_idx)
 
@@ -221,7 +224,7 @@ def load_dataset(data_dir="./data", batch_size=32, num_workers=2, val_split=0.2,
     )
 
     # weights
-    multipliers = [0.8, 1.0, 1.0, 1.2, 1.2]
+    multipliers = [0.8, 1.0, 1.0, 1.2, 1.2] 
     class_weights, class_counts = make_class_weights(labels_0_based[train_idx], num_classes=5, penalty_multipliers=multipliers)
 
 
@@ -248,6 +251,7 @@ def check_dataset():
 class CNN(nn.Module):
     def __init__(self, in_channels=1, num_classes=5, dropout=0.25):
         super(CNN, self).__init__()
+
         self.features = nn.Sequential(
             nn.Conv2d(in_channels, 32, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(32),
@@ -305,11 +309,6 @@ def train_one_epoch(model, loader, criterion, optimizer, device):
 
         loss.backward() 
 
-
-        # prevent spikes?
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-
-
         optimizer.step()
 
         bs = images.size(0)
@@ -354,8 +353,7 @@ def predict_test(model, loader, device):
             images = images.to(device, non_blocking=True)
 
             logits = model(images)
-            preds = logits.argmax(dim=1).cpu().numpy() + \
-                1  # go back to 1-indexing
+            preds = logits.argmax(dim=1).cpu().numpy() + 1  # go back to 1-indexing
 
             test_ids.extend(list(img_ids))
             test_preds.extend(preds.tolist())

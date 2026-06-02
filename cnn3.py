@@ -1,4 +1,5 @@
 # CNNS 0.6948387096774193
+# Here I changed to SILU
 import random
 import argparse
 import cv2
@@ -415,43 +416,6 @@ def parse_args():
         print(f"Ignoring unknown notebook arguments: {unknown}")
     return args
 
-
-
-# FOCAL LOSS
-class FocalLoss(nn.Module):
-    """
-    Multi-class Focal Loss
-    """
-    def __init__(self, weight=None, gamma=2.0, label_smoothing=0.0, reduction='mean'):
-        super().__init__()
-        self.weight = weight
-        self.gamma = gamma
-        self.label_smoothing = label_smoothing
-        self.reduction = reduction
-
-    def forward(self, inputs, targets):
-        # Calculate standard cross entropy loss (with your existing label smoothing)
-        ce_loss = F.cross_entropy(
-            inputs, 
-            targets, 
-            weight=self.weight, 
-            label_smoothing=self.label_smoothing,
-            reduction='none'
-        )
-        
-        # pt is the probability of the target class (inverse of negative log likelihood)
-        pt = torch.exp(-ce_loss)
-        
-        # Apply the focal loss modulating factor: (1 - pt)^gamma
-        focal_loss = ((1 - pt) ** self.gamma) * ce_loss
-        
-        if self.reduction == 'mean':
-            return focal_loss.mean()
-        elif self.reduction == 'sum':
-            return focal_loss.sum()
-        
-        return focal_loss
-
 def main():
     # ARGS AND SETTINGS
     args = parse_args()
@@ -484,13 +448,7 @@ def main():
 
     weights = class_weights.to(device) # weights
 
-    # criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing, weight=weights)
-
-    criterion = FocalLoss(
-        weight=weights, 
-        gamma=2.0,  # 2.0 is the industry standard starting point
-        label_smoothing=args.label_smoothing
-    )
+    criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing, weight=weights)
 
     optimizer = optim.AdamW(
         model.parameters(),

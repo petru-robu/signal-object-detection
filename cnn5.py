@@ -464,7 +464,9 @@ def main():
     #     optimizer,
     #     T_max=args.epochs,
     #     eta_min=1e-6
-    # )
+    # ) 
+
+    # I tried this OneCycleLR scheduler
 
     scheduler = optim.lr_scheduler.OneCycleLR(
         optimizer,

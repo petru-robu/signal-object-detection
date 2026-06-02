@@ -16,20 +16,21 @@ from torchvision import transforms
 
 from torchmetrics import Accuracy
 
+
 # ------ Image manipulation stuff -------
 def imshow(img):
     npimg = img.numpy()
-    # convert RGB ro grayscale
+    # convert RGB to grayscale
     npimg = np.transpose(npimg, (1, 2, 0))
     npimg = npimg.mean(axis=2)
 
-    plt.imshow(npimg, cmap='viridis')
+    plt.imshow(npimg, cmap="viridis")
     plt.show()
 
 
 def load_image(image_path):
     """
-        Load an image from path
+    Load an image from path
     """
 
     # image size is 55, 128
@@ -42,9 +43,8 @@ def load_image(image_path):
     img = img.astype(np.float32) / 255.0
     return img
 
+
 # ------ Dataset stuff -------
-
-
 class ObjDetTorchDataset(Dataset):
     def __init__(self, csv_file, has_label=True, img_dir=None, transform=None):
         self.df = pd.read_csv(csv_file)
@@ -53,7 +53,7 @@ class ObjDetTorchDataset(Dataset):
         self.img_dir = img_dir
 
         if img_dir is None:
-            self.img_dir = './data/train' if "train" in csv_file else './data/test'
+            self.img_dir = "./data/train" if "train" in csv_file else "./data/test"
 
     def __len__(self):
         return len(self.df)
@@ -81,7 +81,7 @@ class ObjDetTorchDataset(Dataset):
 
 def load_dataset(data_dir="./data", batch_size=32, num_workers=2, val_split=0.2):
     """
-        Loads the dataset but for torch required format, data and loader
+    Loads the dataset but for torch required format, data and loader
     """
     # paths
     train_csv, train_img_dir = data_dir + "/train.csv", data_dir + "/train"
@@ -89,46 +89,30 @@ def load_dataset(data_dir="./data", batch_size=32, num_workers=2, val_split=0.2)
 
     # torch data
     full_train_data = ObjDetTorchDataset(
-        csv_file=train_csv,
-        has_label=True,
-        img_dir=train_img_dir
+        csv_file=train_csv, has_label=True, img_dir=train_img_dir
     )
 
     test_data = ObjDetTorchDataset(
-        csv_file=test_csv,
-        has_label=False,
-        img_dir=test_img_dir
+        csv_file=test_csv, has_label=False, img_dir=test_img_dir
     )
 
     # split
     val_size = int(len(full_train_data) * val_split)
     train_size = len(full_train_data) - val_size
 
-    train_data, val_data = random_split(
-        full_train_data,
-        [train_size, val_size]
-    )
+    train_data, val_data = random_split(full_train_data, [train_size, val_size])
 
     # data loaders
     train_loader = DataLoader(
-        train_data,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=num_workers
+        train_data, batch_size=batch_size, shuffle=True, num_workers=num_workers
     )
 
     val_loader = DataLoader(
-        val_data,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers
+        val_data, batch_size=batch_size, shuffle=False, num_workers=num_workers
     )
 
     test_loader = DataLoader(
-        test_data,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers
+        test_data, batch_size=batch_size, shuffle=False, num_workers=num_workers
     )
 
     return test_data, train_data, val_data, test_loader, train_loader, val_loader
@@ -137,7 +121,9 @@ def load_dataset(data_dir="./data", batch_size=32, num_workers=2, val_split=0.2)
 def check_dataset():
     # Loading dataset
     print("Loading dataset...")
-    test_data, train_data, val_data, test_loader, train_loader, val_loader = load_dataset()
+    test_data, train_data, val_data, test_loader, train_loader, val_loader = (
+        load_dataset()
+    )
     images, labels = next(iter(train_loader))
     print("Dataset loaded succesfully!")
     print("Image batch shape:", images.shape)
@@ -153,40 +139,28 @@ def check_dataset():
 class CNN(nn.Module):
     def __init__(self, in_channels, num_classes):
         """
-            in_channels: number of channels in the input image, num_classes: no. of classes to predict (10)
-            Here we define our network
+        in_channels: number of channels in the input image, num_classes: no. of classes to predict (10)
+        Here we define our network
         """
         super(CNN, self).__init__()
 
         # conv layer 1
         self.conv1 = nn.Conv2d(
-            in_channels=in_channels,
-            out_channels=16,
-            kernel_size=3,
-            padding=1
+            in_channels=in_channels, out_channels=16, kernel_size=3, padding=1
         )
 
         # conv layer 2
         self.conv2 = nn.Conv2d(
-            in_channels=16,
-            out_channels=32,
-            kernel_size=3,
-            padding=1
+            in_channels=16, out_channels=32, kernel_size=3, padding=1
         )
 
         # conv layer 3
         self.conv3 = nn.Conv2d(
-            in_channels=32,
-            out_channels=64,
-            kernel_size=3,
-            padding=1
+            in_channels=32, out_channels=64, kernel_size=3, padding=1
         )
 
         # pool layer
-        self.pool = nn.MaxPool2d(
-            kernel_size=2,
-            stride=2
-        )
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
         # Input image: [B, 1, 128, 55]
         #
@@ -195,23 +169,17 @@ class CNN(nn.Module):
         # After conv3 + pool: [B, 64, 16, 6]
         #
         # flatten 1 size = 64 * 16 * 6
-        self.fc1 = nn.Linear(
-            64 * 16 * 6,
-            128
-        )
+        self.fc1 = nn.Linear(64 * 16 * 6, 128)
 
         # flatten 2
-        self.fc2 = nn.Linear(
-            128,
-            num_classes
-        )
+        self.fc2 = nn.Linear(128, num_classes)
 
         self.dropout = nn.Dropout(0.18)
 
     def forward(self, x):
         """
-            Define the forward pass of the neural network
-            x: input tensor, returns also a tensor
+        Define the forward pass of the neural network
+        x: input tensor, returns also a tensor
         """
 
         # conv -> relu -> pool
@@ -246,7 +214,9 @@ def main():
 
     # Loading dataset
     print("Loading dataset...")
-    test_data, train_data, val_data, test_loader, train_loader, val_loader = load_dataset()
+    test_data, train_data, val_data, test_loader, train_loader, val_loader = (
+        load_dataset()
+    )
     images, labels = next(iter(train_loader))
     print("Dataset loaded succesfully!")
     print("Image batch shape:", images.shape)
@@ -319,14 +289,11 @@ def main():
             test_ids.extend(list(img_ids))
             test_preds.extend(preds.tolist())
 
-    submission = pd.DataFrame({
-        "id": test_ids,
-        "label": test_preds
-    })
+    submission = pd.DataFrame({"id": test_ids, "label": test_preds})
 
     submission.to_csv("submission.csv", index=False)
     print("Saved submission.csv")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
