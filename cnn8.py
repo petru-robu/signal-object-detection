@@ -420,7 +420,6 @@ def train_one_epoch(model, loader, criterion, optimizer, device):
 
         loss.backward() 
 
-
         # prevent spikes?
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 

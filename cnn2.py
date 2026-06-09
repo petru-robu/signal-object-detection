@@ -19,8 +19,6 @@ from torchvision.transforms import v2
 from torchmetrics import Accuracy
 
 # ------ Helpers -------
-
-
 def set_seed(seed=42, deterministic=False):
     random.seed(seed)
     np.random.seed(seed)
