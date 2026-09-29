@@ -1,4 +1,4 @@
-# CV Object Detection
+# Signal Object Detection
 
 A ResNet written from scratch in PyTorch that counts objects in noisy radio signal images.
 
