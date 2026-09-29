@@ -1,144 +1,135 @@
-# Signal Object Detection
-Participants are asked to employ machine learning methods to detect (count) objects in noisy radio signals, where classes represent the number of objects.
+# CV Object Detection
 
-Notes:
-- Images are size 55x128
-- Images are grayscale but colormapped with viridis (so not RGB)
+A ResNet written from scratch in PyTorch that counts objects in noisy radio signal images.
 
-## `1.py`: Approach 1 
-This is the first thing I tried:
+## Task
 
-Engineer features from the images and put them into a model.
+- Each image contains 1 to 5 objects. The number of objects is the class.
+- Treated as 5-way classification, as the task defines it. Predictions are labels 1 to 5, not fractional counts.
+- Train: 15,500 images with labels. Test: 5,500 images.
+- Images are 128 x 55 (height x width) PNGs, colormapped with viridis. They are read as grayscale.
+- Files: `train.csv` (`id,label`), `test.csv` (`id`), and a prediction file with `id,label`.
+- Dataset: [Kaggle, signals-dataset](https://www.kaggle.com/datasets/robupetrurazvan/signals-dataset)
 
-Intensity features:
-- mean, std, min, max intesity
-- intensity percentiles
-- number of bright pixels above threshold
-- fraction of bright pixels above threshold
-- number of connected components above threshold
-- largest, average, min, max connected component size
-- edge pixel count
-- edge density
-- horizontal projection mean, std, min, max
-- vertical projection mean, std, min, max
-- resized raw pixel values (32 x 32)
+Random training samples, with the number of objects as the label:
 
-Then try out different models on a training data split, I obtained:
+<table>
+  <tr>
+    <td align="center"><img src="assets/sample1.png" width="120" alt="sample1"></td>
+    <td align="center"><img src="assets/sample2.png" width="120" alt="sample2"></td>
+    <td align="center"><img src="assets/sample3.png" width="120" alt="sample3"></td>
+    <td align="center"><img src="assets/sample4.png" width="120" alt="sample4"></td>
+    <td align="center"><img src="assets/sample5.png" width="120" alt="sample5"></td>
+  </tr>
+  <tr>
+    <td align="center">Label 5</td>
+    <td align="center">Label 2</td>
+    <td align="center">Label 1</td>
+    <td align="center">Label 1</td>
+    <td align="center">Label 4</td>
+  </tr>
+</table>
 
-- RandomForestClassifier: 29.8% accuracy
-- ExtraTreesClassifier: 28.1% accuracy
-- Scaler + SVM: 23.4% accuracy
- 
-## `3.py`: Approach 2
-More agressive feature engineering:
+## Pipeline
 
-Aside from the statistical features from above we can try:
-- https://en.wikipedia.org/wiki/Histogram_of_oriented_gradients: HOG features tell something about directions of edges and things like this. It is useful for object detection.
+- Read image as grayscale, scale to [0, 1].
+- Stratified split of the training set: 80% train (12,400), 20% validation (3,100).
+- Augmentation on train only: Gaussian noise (std 0.02, p 0.25) and a random shift of up to 2 px (p 0.20).
+- Loss: cross-entropy with inverse-frequency class weights (class 1 has 3,500 images, the others 3,000) and label smoothing 0.1.
+- Optimizer: AdamW, lr 1e-3, weight decay 1e-4, cosine decay to 1e-6, 35 epochs, batch size 64, gradient clipping at 1.0.
+- The epoch with the best validation accuracy is kept and used to predict the test set.
+- No hyperparameter tuning. All values above are fixed defaults.
 
-- connected componenets features: looks for blocks of high intensity and analyze them. Something like finding ccs in a graph. Those blobs might be the objects we try to find. After finding components, we compute statistics on them and use them as features.
+## How a ResNet works
 
-- projection features: row sum, column sum, etc. This might be useful as well because we see that our images contain vertical lines and they might be relevant for our object detection.
+- Problem: very deep plain networks trained worse than shallower ones, even on the training set. This is an optimization issue (degradation), not overfitting.
+- Idea: a block learns a residual `F(x)` and outputs `F(x) + x`. The `+ x` skip connection has no parameters.
+- If a block has nothing useful to add, it pushes `F(x)` toward 0. That is easier than learning the identity from scratch.
+- Gradients get a direct path back: `d(F(x) + x)/dx = dF/dx + 1`. The `+ 1` keeps the signal alive through many layers.
+- Basic block: two 3x3 convs, each followed by batch norm, with an activation in between. The skip is added before the final activation.
+- Batch norm keeps each channel at a stable scale, which allows higher learning rates. Convs use `bias=False` because batch norm has its own shift.
+- Projection shortcut: `F(x)` and `x` must have the same shape to be added. When the channel count changes, the skip uses a 1x1 conv plus batch norm. Otherwise it is the identity.
+- Blocks are grouped into stages. Resolution shrinks and channels grow between stages. The end pools each channel to one number and feeds a small classifier.
 
----
-> Changing to CNNs: Standard models don't perform so well, also we are working with images, next best approach: CNNs
+## This implementation
 
-## `cnn1.py`: Approach 3
-For CNNs I am using `pytorch` and training locally on a computer with CUDA. 
+- 10 residual blocks in 5 stages (32, 64, 128, 192, 256 channels), 4.4M parameters.
+- Block: conv 3x3, batch norm, SiLU, conv 3x3, batch norm, SE, dropout, add skip, SiLU.
+- 4 blocks use a projection shortcut (where the channel count changes), 6 use the identity.
+- Differences from the original ResNet:
+  - Stem is one 3x3 conv. The ImageNet stem (7x7 conv with stride 2, then max pool) is too aggressive for a 128 x 55 image.
+  - Downsampling uses max pooling between stages instead of stride-2 convs. The first two pools only halve the width.
+  - SiLU instead of ReLU.
+  - Squeeze-and-excitation (SE) in each block: a learned per-channel gate in (0, 1) computed from the global average of the channel.
+  - Dropout2d inside blocks (0.05 to 0.15).
+  - Head concatenates global average and global max pooling (512 features), then two hidden layers (256, 128) with batch norm and dropout.
 
-> Later I tried kaggle notebooks as well but it wasn't much better than locally somehow.
+```mermaid
+flowchart TB
+    IN["Input<br/>1 x 128 x 55"] --> S1["Stem + Stage 1, 32 ch<br/>32 x 128 x 55"]
+    S1 -->|"MaxPool 1x2"| S2["Stage 2, 64 ch<br/>64 x 128 x 27"]
+    S2 -->|"MaxPool 1x2"| S3["Stage 3, 128 ch<br/>128 x 128 x 13"]
+    S3 -->|"MaxPool 2x2"| S4["Stage 4, 192 ch<br/>192 x 64 x 6"]
+    S4 -->|"MaxPool 2x2"| S5["Stage 5, 256 ch<br/>256 x 32 x 3"]
+    S5 --> POOL["Global avg pool + global max pool<br/>512"]
+    POOL --> FC["Linear 256, Linear 128<br/>BatchNorm, SiLU, Dropout"]
+    FC --> OUT["Linear 5<br/>class logits"]
+```
 
-My first CNN design was the following:
+Each stage is two residual blocks. Shapes are channels x height x width.
+
+## Files
+
+- `data.py`: dataset, augmentation, stratified split, data loaders.
+- `model.py`: SE block, residual block, ResNet.
+- `train.py`: training loop, validation, metrics logging, test predictions.
+- `plots.py`: plots and summary metrics from the training output.
+
+## Metrics and plots
+
+`train.py` writes to `output/`:
+
+- `metrics.csv`: per epoch learning rate, train and validation loss and accuracy, seconds.
+- `val_predictions.csv`: for every validation image the label, the prediction and the five class probabilities, from the best epoch.
+- `val_probs.npy`: validation class probabilities of every epoch, shape (epochs, images, 5), same image order as `val_predictions.csv`. Any validation metric per epoch can be computed from it.
+- `config.json`: all arguments of the run, the device and the parameter count.
+- `best_model.pth` and `predictions.csv` (test set).
+- Rerunning overwrites these files. Use another output directory to keep a run (`uv run train.py -h` shows how).
+
+`plots.py` reads those files and writes to `output/plots/`:
+
+- `curves.png`: loss, accuracy and learning rate per epoch, with the best epoch marked.
+- `confusion_matrix.png`: counts and row-normalized (recall).
+- `class_metrics.png` and `class_metrics.csv`: precision, recall and F1 per class.
+- `errors.png`: count error (predicted minus true) and confidence of correct versus wrong predictions.
+- `misclassified.png`: the most confident mistakes.
+- It also prints macro F1, accuracy within one object, and mean absolute count error.
+
+## Run
+
+Download the [dataset](https://www.kaggle.com/datasets/robupetrurazvan/signals-dataset) into `data/` (ignored by git):
+
+```text
+data/
+  train.csv
+  test.csv
+  train/
+  test/
+```
 
 ```bash
-Conv(kernel_size=3, padding=1)
-Conv(kernel_size=3, padding=1)
-Conv(kernel_size=3, padding=1)
-nn.MaxPool2d(kernel_size=2, stride=2)
-
-Flatten
-
-Linear 
-Linear
-Dropout
-```
-```bash
-Criterion: nn.CrossEntropyLoss()
-Optimizer: optim.Adam(model.parameters(), lr=0.001)
+uv sync
+uv run train.py
+uv run plots.py
 ```
 
-Training this on 10-15 epochs got me at 30% accuracy.
+- `uv run train.py -h` lists the options.
 
-From here I started to do some trial and error and find suitable CNN ideas.
+## Results
 
-## `cnn4.py`: Approach 4
-I looked more into CNNs and decided to make the following changes / improvements:
+- Accuracy: 80% on the test set.
+- Placed 8th of 120 students in a private university contest. The test labels are not public, so this score cannot be checked independently.
 
-1) Change the network to this:
+## License
 
-```bash
-4 layers of this block:
-nn.Conv2d(kernel_size=3, padding=1, bias=False),
-nn.BatchNorm2d(),
-nn.SiLU(inplace=True),
-nn.Conv2d(kernel_size=3, padding=1, bias=False),
-nn.BatchNorm2d(),
-nn.SiLU(inplace=True),
-nn.MaxPool2d(kernel_size=(1, 2), stride=(1, 2)),
-
-This was going: 1 -> 16 -> 32 -> 64 -> 128 
-
-At the end:
-nn.AdaptiveAvgPool2d((1, 1))
-
-nn.Flatten(),
-nn.Linear(128, 128),
-nn.BatchNorm1d(128),
-nn.SiLU(inplace=True),
-nn.Dropout(dropout),
-nn.Linear(128, num_classes),
-```
-
-```bash
-criterion = nn.CrossEntropyLoss() # kept cross entropy loss
-optimizer = optim.AdamW() # changed from Adam to AdamW
-```
-
-2) Added a scheduler:
-
-```
-scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=1e-6)
-```
-
-3) Added data augumentation
-Augument the data to make the network learn features in different circumstances.
-
-- Gaussian noise
-- Random shift: a small translation on x / y axes
-
-4) Added class weights
-
-- In the data there is a slight bias towards classes 1 and 2. So we need to take it into account.
-- Also i tried to manually alter class weights by giving a coeff array to make the network favor a class or the other. This was based on the confusion matrix, seeing that i confused specific classes with one another. - Later I droped this idea
-
-
-With this, I got a submission of 72%
-
-### `cnn7.py`: Approach 5
-
-In the meantime I edited the network from CNN4, but gave me no big difference.
-
-Baiscally, here I did hyperparameter tuning with `optuna` on the CNN above.
-
-I did 5 trials of 30 epochs each (because best acc was obtained usually around epoch 20-30).
-
-Doing this, I got from 72% to 76%.
-
-### `cnn8.py`: Approach 6 
-
-The most logical thing to obtain better accuracies were pretrained networks like ResNet or AlexNet. So from here, a more accesible one to implement by hand were resnets: https://en.wikipedia.org/wiki/Residual_neural_network
-
-Resnet takes into account earlier layers and gives better performance.
-
-This gave me a submission of 80%.
-
-### Next approach: Resnet + Optuna
+MIT. See [LICENSE](LICENSE).
