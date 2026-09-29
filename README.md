@@ -36,7 +36,7 @@ Random training samples, with the number of objects as the label:
 - Stratified split of the training set: 80% train (12,400), 20% validation (3,100).
 - Augmentation on train only: Gaussian noise (std 0.02, p 0.25) and a random shift of up to 2 px (p 0.20).
 - Loss: cross-entropy with inverse-frequency class weights (class 1 has 3,500 images, the others 3,000) and label smoothing 0.1.
-- Optimizer: AdamW, lr 1e-3, weight decay 1e-4, cosine decay to 1e-6, 35 epochs, batch size 64, gradient clipping at 1.0.
+- Optimizer: AdamW, lr 1e-3, weight decay 1e-4, cosine decay to 1e-6, 42 epochs, batch size 64, gradient clipping at 1.0.
 - The epoch with the best validation accuracy is kept and used to predict the test set.
 - No hyperparameter tuning. All values above are fixed defaults.
 
@@ -127,8 +127,46 @@ uv run plots.py
 
 ## Results
 
-- Accuracy: 80% on the test set.
+- Test accuracy: 80%.
 - Placed 8th of 120 students in a private university contest. The test labels are not public, so this score cannot be checked independently.
+- Everything below is on the validation set (3,100 images held out from train). Training took 42 epochs at about 114 s each on a laptop GPU, 80 minutes in total.
+
+### Validation
+
+- Best epoch 20: accuracy 79.0%, macro F1 0.786.
+- Last epoch 42: accuracy 77.8%. The best epoch is picked on this same set, so 79.0% is slightly optimistic.
+- 92.6% of predictions are within one object of the true count. Mean absolute count error is 0.33.
+
+| Class | Precision | Recall | F1 | Images |
+| --- | --- | --- | --- | --- |
+| 1 | 0.74 | 0.98 | 0.84 | 700 |
+| 2 | 0.78 | 0.80 | 0.79 | 600 |
+| 3 | 0.81 | 0.75 | 0.78 | 600 |
+| 4 | 0.75 | 0.74 | 0.74 | 600 |
+| 5 | 0.97 | 0.65 | 0.78 | 600 |
+
+### Training curves
+
+![Loss, accuracy and learning rate per epoch](assets/curves.png)
+
+- Validation accuracy stays between 77% and 79% from epoch 13, while train accuracy keeps rising to 86%.
+- Validation loss is lowest at epoch 15 (0.806) and rises afterwards, so the later epochs overfit. The saved model is from epoch 20.
+
+### Errors
+
+![Confusion matrix](assets/confusion_matrix.png)
+
+- Class 1 is almost always found (recall 0.98), but other classes are often called 1 (precision 0.74): 112 of 600 twos and 53 of 600 threes.
+- Class 5 is the hardest to find (recall 0.65). 119 of 600 fives are called 4. A predicted 5 is right 97% of the time.
+- 90% of the mistakes (588 of 650) predict fewer objects than the label.
+
+![Count error and prediction confidence](assets/errors.png)
+
+- 62% of images get a confidence of at least 0.8, and 94% of those are correct. The median confidence is 0.87 for correct predictions and 0.52 for wrong ones.
+
+![Most confident mistakes](assets/misclassified.jpg)
+
+- 8 of these 10 are threes predicted as twos, and 2 are fours predicted as threes. Several show only one or two visible lines.
 
 ## License
 

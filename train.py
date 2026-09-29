@@ -80,7 +80,7 @@ def parse_args():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--data-dir", default="./data")
     p.add_argument("--output-dir", default="./output")
-    p.add_argument("--epochs", type=int, default=35)
+    p.add_argument("--epochs", type=int, default=42)
     p.add_argument("--batch-size", type=int, default=64)
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--weight-decay", type=float, default=1e-4)
